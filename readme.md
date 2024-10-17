@@ -31,8 +31,8 @@ to the native Vault's CLI.
     The unseal key and root token are displayed below in case you want to
     seal/unseal the Vault or re-authenticate.
 
-    Unseal Key: gSTqCSgHTRftevffJFE/f+vHPJR2UeX8cP/3wn5Zsc4=
-    Root Token: root
+    Unseal Key: xxx
+    Root Token: yyy
 
     The following dev plugins are registered in the catalog:
         - vault-auth-plugin-attest
