@@ -10,6 +10,10 @@ dist
 .vscode
 *.code-workspace
 
+# secrets
+
+.totp-secret
+
 # temporary files
 
 .temp
