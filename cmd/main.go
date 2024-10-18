@@ -88,6 +88,7 @@ func main() {
 	commands := []*cli.Command{
 		CommandPlugin(cfg),
 		CommandLogin(cfg),
+		CommandQuote(cfg),
 		CommandHelp(),
 	}
 

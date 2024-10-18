@@ -10,16 +10,17 @@ import (
 
 	"github.com/flashbots/vault-auth-plugin-attest/globals"
 	"github.com/flashbots/vault-auth-plugin-attest/types"
-	"github.com/google/go-tdx-guest/abi"
-	"github.com/google/go-tdx-guest/verify"
-	"github.com/google/go-tdx-guest/verify/trust"
+
 	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/pquerna/otp/totp"
 
+	tdxabi "github.com/google/go-tdx-guest/abi"
 	txdcheck "github.com/google/go-tdx-guest/proto/checkconfig"
 	tdxpb "github.com/google/go-tdx-guest/proto/tdx"
+	tdxverify "github.com/google/go-tdx-guest/verify"
+	tdxtrust "github.com/google/go-tdx-guest/verify/trust"
 )
 
 const helpTDXLoginSynopsys = `
@@ -114,7 +115,7 @@ func (b *backend) pathTDXLogin(
 			)
 		}
 
-		quote, err = abi.QuoteToProto(quoteBytes)
+		quote, err = tdxabi.QuoteToProto(quoteBytes)
 		if err != nil {
 			return b.loggedError("failed to abi-parse tdx quote",
 				"domain", name,
@@ -184,7 +185,7 @@ func (b *backend) pathTDXLogin(
 	}
 
 	{ // validate tdx quote
-		sopts, err := verify.RootOfTrustToOptions(
+		sopts, err := tdxverify.RootOfTrustToOptions(
 			&txdcheck.RootOfTrust{}, // TODO: make configurable
 		)
 		if err != nil {
@@ -193,10 +194,10 @@ func (b *backend) pathTDXLogin(
 				"error", err,
 			)
 		}
-		sopts.Getter = &trust.RetryHTTPSGetter{
-			Getter: &trust.SimpleHTTPSGetter{},
+		sopts.Getter = &tdxtrust.RetryHTTPSGetter{
+			Getter: &tdxtrust.SimpleHTTPSGetter{},
 		}
-		errs = multierror.Append(errs, verify.TdxQuote(quote, sopts))
+		errs = multierror.Append(errs, tdxverify.TdxQuote(quote, sopts))
 	}
 
 	{ // verify the nonce

@@ -10,10 +10,10 @@ import (
 	"github.com/flashbots/vault-auth-plugin-attest/config"
 	"github.com/flashbots/vault-auth-plugin-attest/globals"
 	"github.com/flashbots/vault-auth-plugin-attest/utils"
-	vaultapi "github.com/hashicorp/vault/api"
 	"go.uber.org/zap"
 
 	tdx "github.com/google/go-tdx-guest/client"
+	vaultapi "github.com/hashicorp/vault/api"
 )
 
 var (

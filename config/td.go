@@ -31,14 +31,14 @@ func (cfg *TD) Preprocess() error {
 	}
 
 	{ // --td-totp-secret
-		if len(cfg.TOTPSecret) != 32 {
+		if len(cfg.TOTPSecret) != 32 && len(cfg.TOTPSecret) != 0 {
 			if info, err := os.Stat(cfg.TOTPSecret); err == nil && !info.IsDir() {
 				if b, err := os.ReadFile(cfg.TOTPSecret); err == nil {
 					cfg.TOTPSecret = strings.TrimSpace(string(b))
 				}
 			}
 		}
-		if len(cfg.TOTPSecret) != 32 {
+		if len(cfg.TOTPSecret) != 32 && len(cfg.TOTPSecret) != 0 {
 			return fmt.Errorf("%w: incorrect length: expected %d; got %d",
 				errTDTOTPSecretIsInvalid, 32, len(cfg.TOTPSecret),
 			)

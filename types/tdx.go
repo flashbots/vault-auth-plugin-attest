@@ -4,10 +4,14 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/flashbots/vault-auth-plugin-attest/utils"
-	tdxpb "github.com/google/go-tdx-guest/proto/tdx"
 	"github.com/hashicorp/vault/sdk/helper/tokenutil"
+
+	tdxabi "github.com/google/go-tdx-guest/abi"
+	tdx "github.com/google/go-tdx-guest/client"
+	tdxpb "github.com/google/go-tdx-guest/proto/tdx"
 )
 
 // TDX reflects our expectations about TDX trusted domain.
@@ -99,6 +103,7 @@ var (
 	errTDXQuoteMismatchRTMR3         = errors.New("rtmr[3] mismatch")
 	errTDXQuoteUnderDebugDetected    = errors.New("td under debug detected")
 	errTDXQuoteSeptVeDisableIsUnset  = errors.New("td sept_ve_disabled is unset")
+	errTDXUnknownQuoteFormat         = errors.New("unknown tdx quote format")
 
 	// all ints are little endian (least-significant byte is at the smallest address)
 
@@ -112,6 +117,55 @@ var (
 		0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00,
 	}
 )
+
+func TDXFromQuote() (*TDX, error) {
+	provider, err := tdx.GetQuoteProvider()
+	if err != nil {
+		return nil, err
+	}
+
+	rawQuote, err := tdx.GetRawQuote(provider, [64]byte{})
+	if err != nil {
+		return nil, err
+	}
+
+	_quote, err := tdxabi.QuoteToProto(rawQuote)
+	if err != nil {
+		return nil, err
+	}
+
+	quote := _quote.(*tdxpb.QuoteV4)
+	if quote == nil {
+		return nil, fmt.Errorf("%w: %s",
+			errTDXUnknownQuoteFormat, reflect.TypeOf(_quote),
+		)
+	}
+
+	if quote.TdQuoteBody == nil {
+		return nil, errTDXQuoteMissingBody
+	}
+
+	body := quote.TdQuoteBody
+
+	if len(body.Rtmrs) != 4 {
+		return nil, fmt.Errorf("%w: %d != 4",
+			errTDXQuoteUnexpectedRTMRsCount, len(body.Rtmrs),
+		)
+	}
+
+	return &TDX{
+		MrOwner:            (*Byte48)(body.MrOwner),
+		MrOwnerConfig:      (*Byte48)(body.MrOwnerConfig),
+		MrConfigID:         (*Byte48)(body.MrConfigId),
+		MrTD:               (*Byte48)(body.MrTd),
+		RTMR0:              (*Byte48)(body.Rtmrs[0]),
+		RTMR1:              (*Byte48)(body.Rtmrs[1]),
+		RTMR2:              (*Byte48)(body.Rtmrs[2]),
+		RTMR3:              (*Byte48)(body.Rtmrs[3]),
+		CheckDebug:         utils.ConstantTimeMask(maskDebug[:], body.TdAttributes) == 1,
+		CheckSeptVeDisable: utils.ConstantTimeMask(maskSeptVeDisable[:], body.TdAttributes) == 1,
+	}, nil
+}
 
 func (tdx *TDX) MatchesQuoteV4(quote *tdxpb.QuoteV4) ([]error, []error) {
 	type test struct {

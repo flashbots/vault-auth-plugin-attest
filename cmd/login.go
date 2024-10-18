@@ -46,7 +46,7 @@ func CommandLogin(cfg *config.Config) *cli.Command {
 			Category:    strings.ToUpper(categoryTD),
 			Destination: &cfg.TD.AttestationType,
 			Name:        categoryTD + "-attestation-type",
-			Usage:       "attestation `type` (allowed values: tdx, tpm2)",
+			Usage:       "attestation `type` (allowed values: tdx)",
 			Value:       "tdx",
 		},
 

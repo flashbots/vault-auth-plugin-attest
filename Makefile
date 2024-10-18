@@ -14,11 +14,17 @@ snapshot:
 
 .PHONY: help
 help:
-	@go run github.com/flashbots/vault-auth-plugin-attest/cmd login --help
+	@go run github.com/flashbots/vault-auth-plugin-attest/cmd \
+		login --help
 
 .PHONY: plugin
 plugin:
 	@go run github.com/flashbots/vault-auth-plugin-attest/cmd
+
+.PHONY: quote-tdx
+quote-tdx:
+	@go run github.com/flashbots/vault-auth-plugin-attest/cmd \
+		quote --td-attestation-type tdx
 
 .PHONY: vault
 vault:
