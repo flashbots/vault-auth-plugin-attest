@@ -1,81 +1,57 @@
 package plugin
 
 import (
-	"encoding/base64"
-	"errors"
 	"fmt"
+	"strings"
+	"time"
 
-	"github.com/flashbots/vault-auth-plugin-attest/types"
 	"github.com/hashicorp/go-multierror"
-	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
-// loggedError logs an error and returns vault's logical error response to the
-// client.
+// sanitise should be used for unauthenticated paths:
 //
-// The error is logged with all provisioned key/value pairs, but only the
-// text message of the error is returned to the client (to prevent leaking
-// internal and potentially sensitive data).
-func (b *backend) loggedError(
-	text string,
-	args ...interface{},
+//   - When underlying wrapped call returns with success, it will just relay the
+//     response as-is.
+//
+//   - When underlying wrapped call fails, it will mask the response with a
+//     generic one and wait for a constant timeout (as a form of naïve
+//     rate-limiting as well as a precaution against time-bound
+//     data-extraction).
+func (b *backend) sanitise(
+	do func() (*logical.Response, error),
 ) (*logical.Response, error) {
-	l := b.Logger()
-	l.Error(text, args...)
-	return logical.ErrorResponse(text), errors.New(text)
+	ts := time.Now()
+
+	res, err := do()
+
+	time.Sleep(time.Until(ts.Add(time.Second)))
+
+	if err == nil {
+		return res, nil
+	}
+
+	return logical.ErrorResponse(logical.ErrInvalidRequest.Error()), logical.ErrInvalidRequest
 }
 
-// invalidRequest logs an error and returns vault's logical error response to the
-// client.
-//
-// The error text is rendered with printf first, and then used for both: the
-// log message as well as the message returned to the client.
-func (b *backend) invalidRequest(
-	text string,
-	args ...interface{},
-) (*logical.Response, error) {
-	l := b.Logger()
-	msg := fmt.Sprintf(text, args...)
-	l.Error(msg)
-	return logical.ErrorResponse(msg), errors.New(msg)
-}
+// multierror creates multierror.Error that is convenient for the logs (prints
+// out as a single line of text instead of multiple).
+func (b *backend) multierror(errs ...error) *multierror.Error {
+	err := &multierror.Error{
+		ErrorFormat: func(es []error) string {
+			if len(es) == 1 {
+				return es[0].Error()
+			}
 
-func extractByte48(
-	data *framework.FieldData,
-	key string,
-	errs *multierror.Error,
-) (*types.Byte48, *multierror.Error) {
-	encoded, present, err := data.GetOkErr(key)
-	if err != nil {
-		return nil, multierror.Append(err, errs)
+			points := make([]string, len(es))
+			for i, err := range es {
+				points[i] = err.Error()
+			}
+
+			return fmt.Sprintf(
+				"%d errors occurred: %s",
+				len(es), strings.Join(points, "; "))
+		},
 	}
-	if !present {
-		return nil, errs
-	}
-
-	encodedStr, ok := encoded.(string)
-	if !ok {
-		return nil, multierror.Append(errs, fmt.Errorf(
-			"%s is not encoded as base64 string", key,
-		))
-	}
-
-	decoded, err := base64.StdEncoding.DecodeString(encodedStr)
-	if err != nil {
-		return nil, multierror.Append(errs, fmt.Errorf(
-			"%s is not encoded as base64 string: %w", key, err,
-		))
-	}
-
-	if len(decoded) > 48 {
-		return nil, multierror.Append(errs, fmt.Errorf(
-			"data encoded by %s is longer than expected max 48 bytes: %d > 48", key, len(decoded),
-		))
-	}
-
-	var res types.Byte48
-	copy(res[:], decoded)
-
-	return &res, errs
+	return multierror.Append(err, errs...)
 }

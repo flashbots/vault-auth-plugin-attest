@@ -30,6 +30,9 @@ var (
 func (cfg *Config) Preprocess() error {
 	errs := make([]error, 0)
 
+	if cfg.Format == "" {
+		cfg.Format = "table"
+	}
 	if !slices.Contains(Formats, cfg.Format) {
 		errs = append(errs, fmt.Errorf("invalid format %s (allowed values: %s)",
 			cfg.Format,

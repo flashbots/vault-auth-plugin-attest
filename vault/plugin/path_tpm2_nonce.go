@@ -8,26 +8,26 @@ import (
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
-const helpTDXNonceSynopsys = `
-Generate TDX attestation nonce.
+const helpTPM2NonceSynopsys = `
+Generate TPM 2.0 attestation nonce.
 `
 
-const helpTDXNonceDescription = `
-Request vault to generate a TDX attestation nonce that client will need to
-include into the attestation quote in order to complete the authentication
+const helpTPM2NonceDescription = `
+Request vault to generate a TPM 2.0 attestation nonce that client will need to
+include into the attestation report in order to complete the authentication
 sequence.
 `
 
-func pathTDXNonce(b *backend) *framework.Path {
+func pathTPM2Nonce(b *backend) *framework.Path {
 	return &framework.Path{
-		Pattern:         "tdx/" + framework.GenericNameRegex("name") + "/nonce",
-		HelpSynopsis:    helpTDXNonceSynopsys,
-		HelpDescription: helpTDXNonceDescription,
+		Pattern:         "tpm2/" + framework.GenericNameRegex("name") + "/nonce",
+		HelpSynopsis:    helpTPM2NonceSynopsys,
+		HelpDescription: helpTPM2NonceDescription,
 
 		Fields: map[string]*framework.FieldSchema{
 			"name": {
 				Type:        framework.TypeString,
-				Description: "TDX trusted domain name",
+				Description: "TPM 2.0 trusted domain name",
 			},
 
 			"totp": {
@@ -38,11 +38,11 @@ func pathTDXNonce(b *backend) *framework.Path {
 
 		Operations: map[logical.Operation]framework.OperationHandler{
 			logical.CreateOperation: &framework.PathOperation{
-				Callback: b.pathTDXNonceGenerate,
+				Callback: b.pathTPM2NonceGenerate,
 			},
 
 			logical.UpdateOperation: &framework.PathOperation{
-				Callback: b.pathTDXNonceGenerate,
+				Callback: b.pathTPM2NonceGenerate,
 			},
 		},
 
@@ -52,7 +52,7 @@ func pathTDXNonce(b *backend) *framework.Path {
 	}
 }
 
-func (b *backend) pathTDXNonceGenerate(
+func (b *backend) pathTPM2NonceGenerate(
 	ctx context.Context,
 	req *logical.Request,
 	data *framework.FieldData,
@@ -63,7 +63,7 @@ func (b *backend) pathTDXNonceGenerate(
 			return logical.ErrorResponse(err.Error()), err
 		}
 
-		td, err := b.fetchTDX(ctx, req, name)
+		td, err := b.fetchTPM2(ctx, req, name)
 		if err != nil {
 			return logical.ErrorResponse(err.Error()), err
 		}
@@ -73,14 +73,15 @@ func (b *backend) pathTDXNonceGenerate(
 			return logical.ErrorResponse(err.Error()), err
 		}
 
-		nonce, err := b.generateNonce(ctx, td, globals.TDXNonceSize)
+		nonce, err := b.generateNonce(ctx, td, globals.TPM2NonceSize)
 		if err != nil {
 			return logical.ErrorResponse(err.Error()), err
 		}
 
 		return &logical.Response{
 			Data: map[string]interface{}{
-				"nonce": nonce,
+				"ak_public": td.AKPublic.String(),
+				"nonce":     nonce,
 			},
 		}, nil
 	})

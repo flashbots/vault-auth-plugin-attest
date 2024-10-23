@@ -2,13 +2,10 @@ package config
 
 import "slices"
 
-const (
-	AttestationTDX = "tdx"
-)
-
 var (
 	AttestationTypes = []string{
-		AttestationTDX,
+		"tdx",
+		"tpm2",
 	}
 )
 

@@ -21,9 +21,6 @@ const (
 )
 
 func CommandLogin(cfg *config.Config) *cli.Command {
-	cfg.TD = &config.TD{}
-	cfg.Vault = &config.Vault{}
-
 	flagsGeneral := []cli.Flag{
 		&cli.StringFlag{ // --format
 			Destination: &cfg.Format,
@@ -46,8 +43,16 @@ func CommandLogin(cfg *config.Config) *cli.Command {
 			Category:    strings.ToUpper(categoryTD),
 			Destination: &cfg.TD.AttestationType,
 			Name:        categoryTD + "-attestation-type",
-			Usage:       "attestation `type` (allowed values: tdx)",
+			Usage:       "attestation `type` (allowed values: " + strings.Join(config.AttestationTypes, ", ") + ")",
 			Value:       "tdx",
+		},
+
+		&cli.StringFlag{ // --td-vault-path
+			Category:    strings.ToUpper(categoryTD),
+			Destination: &cfg.TD.VaultPath,
+			Name:        categoryTD + "-vault-path",
+			Usage:       "remote `path` in vault where the attested auth method is mounted",
+			Value:       "attest",
 		},
 
 		&cli.StringFlag{ // --td-totp-secret
@@ -58,12 +63,12 @@ func CommandLogin(cfg *config.Config) *cli.Command {
 			Value:       ".totp-secret",
 		},
 
-		&cli.StringFlag{ // --td-vault-path
+		&cli.StringFlag{ // --td-tpm2-ak-private-blob
 			Category:    strings.ToUpper(categoryTD),
-			Destination: &cfg.TD.VaultPath,
-			Name:        categoryTD + "-vault-path",
-			Usage:       "remote `path` in vault where the attested auth method is mounted",
-			Value:       "attest",
+			Destination: &cfg.TD.TPM2AKPrivateBlob,
+			Name:        categoryTD + "-tpm2-ak-private-blob",
+			Usage:       "tpm2 attestation key private blob `secret/path` to use for authentication",
+			Value:       ".tpm2-ak",
 		},
 	}
 
@@ -124,8 +129,6 @@ func CommandLogin(cfg *config.Config) *cli.Command {
 		},
 
 		Action: func(_ *cli.Context) error {
-			// setup
-
 			ctx := context.Background()
 			if cfg.Verbose {
 				l, err := logger.New()
@@ -140,8 +143,6 @@ func CommandLogin(cfg *config.Config) *cli.Command {
 			if err != nil {
 				return nil
 			}
-
-			// run
 
 			return cli.Login(ctx, cfg.TD)
 		},

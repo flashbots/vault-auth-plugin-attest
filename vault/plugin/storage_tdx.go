@@ -3,7 +3,7 @@ package plugin
 import (
 	"context"
 
-	"github.com/flashbots/vault-auth-plugin-attest/types"
+	"github.com/flashbots/vault-auth-plugin-attest/tdx"
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
@@ -11,7 +11,7 @@ func (b *backend) loadTDX(
 	ctx context.Context,
 	storage logical.Storage,
 	name string,
-) (*types.TDX, error) {
+) (*tdx.TDX, error) {
 	entry, err := storage.Get(ctx, "tdx/"+name)
 	if err != nil {
 		return nil, err
@@ -20,7 +20,7 @@ func (b *backend) loadTDX(
 		return nil, nil
 	}
 
-	tdx := &types.TDX{}
+	tdx := &tdx.TDX{}
 	if err := entry.DecodeJSON(tdx); err != nil {
 		return nil, err
 	}
@@ -31,10 +31,9 @@ func (b *backend) loadTDX(
 func (b *backend) saveTDX(
 	ctx context.Context,
 	storage logical.Storage,
-	name string,
-	tdx *types.TDX,
+	tdx *tdx.TDX,
 ) error {
-	entry, err := logical.StorageEntryJSON("tdx/"+name, tdx)
+	entry, err := logical.StorageEntryJSON("tdx/"+tdx.Name, tdx)
 	if err != nil {
 		return err
 	}

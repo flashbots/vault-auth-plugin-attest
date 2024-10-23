@@ -26,6 +26,8 @@ const (
 func main() {
 	cfg := &config.Config{
 		HTTP:    &config.HTTP{},
+		TD:      &config.TD{},
+		Vault:   &config.Vault{},
 		Version: version,
 	}
 

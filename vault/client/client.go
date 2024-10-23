@@ -111,9 +111,11 @@ func (c *Client) Login(ctx context.Context, td *config.TD) error {
 		return fmt.Errorf("unknown attestation type: %s", td.AttestationType)
 	case "tdx":
 		secret, err = c.loginTDX(ctx, td)
-		if err != nil {
-			return err
-		}
+	case "tpm2":
+		secret, err = c.loginTPM2(ctx, td)
+	}
+	if err != nil {
+		return err
 	}
 
 	token := secret.Auth.ClientToken

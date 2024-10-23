@@ -40,7 +40,7 @@ to the native Vault's CLI.
     Development mode should NOT be used in production installations!
     ```
 
-- Enable vault-auth-plugin-attest plugin:
+- Enable `vault-auth-plugin-attest` plugin:
 
     ```shell
     make vault-enable-plugin
@@ -49,6 +49,8 @@ to the native Vault's CLI.
     ```text
     Success! Enabled vault-auth-plugin-attest auth method at: attest/
     ```
+
+### TDX attestation
 
 - Configure "test" TDX trusted domain with a dummy TOTP secret:
 

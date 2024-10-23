@@ -2,15 +2,11 @@ package plugin
 
 import (
 	"context"
-	"time"
+	"fmt"
 
-	"github.com/flashbots/vault-auth-plugin-attest/globals"
-	"github.com/flashbots/vault-auth-plugin-attest/types"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/helper/tokenutil"
 	"github.com/hashicorp/vault/sdk/logical"
-	"github.com/mitchellh/mapstructure"
-	"github.com/pquerna/otp/totp"
 )
 
 const helpTDXSynopsys = `
@@ -233,11 +229,11 @@ func (b *backend) pathTDXExists(
 	req *logical.Request,
 	data *framework.FieldData,
 ) (bool, error) {
-	tdx, err := b.loadTDX(ctx, req.Storage, data.Get("name").(string))
+	td, err := b.loadTDX(ctx, req.Storage, data.Get("name").(string))
 	if err != nil {
 		return false, err
 	}
-	return tdx != nil, nil
+	return td != nil, nil
 }
 
 func (b *backend) pathTDXUpsert(
@@ -245,153 +241,40 @@ func (b *backend) pathTDXUpsert(
 	req *logical.Request,
 	data *framework.FieldData,
 ) (*logical.Response, error) {
-	l := b.Logger()
+	name, err := b.getName(ctx, data)
+	if err != nil {
+		return logical.ErrorResponse(err.Error()), err
+	}
 
-	var (
-		name  string
-		tdx   *types.TDX
-		err   error
-		isNew bool
-	)
+	td, isNew, err := b.upsertTDX(ctx, req, data, name)
+	if err != nil {
+		return logical.ErrorResponse(err.Error()), err
+	}
 
-	{ // fetch from the storage
-		name = data.Get("name").(string)
-		if name == "" {
-			return b.invalidRequest("tdx domain name is required")
-		}
+	if err := b.parseTokenFields(ctx, req, data, td); err != nil {
+		return logical.ErrorResponse(err.Error()), err
+	}
 
-		tdx, err = b.loadTDX(ctx, req.Storage, name)
-		if err != nil {
-			return b.loggedError("failed to load tdx domain from storage",
-				"domain", name,
-				"error", err,
-			)
-		}
-
-		mrOwner, errs := extractByte48(data, "tdx_mr_owner", nil)
-		mrOwnerConfig, errs := extractByte48(data, "tdx_mr_owner_config", errs)
-		mrConfigID, errs := extractByte48(data, "tdx_mr_config_id", errs)
-		mrTD, errs := extractByte48(data, "tdx_mr_td", errs)
-		rtmr0, errs := extractByte48(data, "tdx_rtmr0", errs)
-		rtmr1, errs := extractByte48(data, "tdx_rtmr1", errs)
-		rtmr2, errs := extractByte48(data, "tdx_rtmr2", errs)
-		rtmr3, errs := extractByte48(data, "tdx_rtmr3", errs)
-
-		if err := errs.ErrorOrNil(); err != nil {
-			return b.invalidRequest("failed to create new tdx entry: %s", err)
-		}
-
-		if tdx != nil {
-			l.Debug("updating tdx trusted domain", "name", name)
-
-			if totpSecret, ok := data.GetOk("totp_secret"); ok {
-				tdx.TOTPSecret = totpSecret.(string)
-			}
-			if checkDebug, ok := data.GetOk("tdx_check_debug"); ok {
-				tdx.CheckDebug = checkDebug.(bool)
-			}
-			if checkSeptVeDisable, ok := data.GetOk("tdx_check_sept_ve_disable"); ok {
-				tdx.CheckSeptVeDisable = checkSeptVeDisable.(bool)
-			}
-
-			if mrOwner != nil {
-				tdx.MrOwner = mrOwner
-			}
-			if mrOwnerConfig != nil {
-				tdx.MrOwnerConfig = mrOwnerConfig
-			}
-			if mrConfigID != nil {
-				tdx.MrConfigID = mrConfigID
-			}
-			if mrTD != nil {
-				tdx.MrTD = mrTD
-			}
-			if rtmr0 != nil {
-				tdx.RTMR0 = rtmr0
-			}
-			if rtmr1 != nil {
-				tdx.RTMR1 = rtmr1
-			}
-			if rtmr2 != nil {
-				tdx.RTMR2 = rtmr2
-			}
-			if rtmr3 != nil {
-				tdx.RTMR3 = rtmr3
-			}
-		} else {
-			l.Debug("creating tdx domain", "name", name)
-
-			isNew = true
-
-			tdx = &types.TDX{
-				TOTPSecret:         data.Get("totp_secret").(string),
-				CheckDebug:         data.Get("tdx_check_debug").(bool),
-				CheckSeptVeDisable: data.Get("tdx_check_sept_ve_disable").(bool),
-
-				MrOwner:       mrOwner,
-				MrOwnerConfig: mrOwnerConfig,
-				MrConfigID:    mrConfigID,
-				MrTD:          mrTD,
-				RTMR0:         rtmr0,
-				RTMR1:         rtmr1,
-				RTMR2:         rtmr2,
-				RTMR3:         rtmr3,
-			}
+	if td.TOTPSecret == "" {
+		if err := b.generateTOTPSecret(ctx, td); err != nil {
+			return logical.ErrorResponse(err.Error()), err
 		}
 	}
 
-	{ // parse token parameters
-		if err := tdx.ParseTokenFields(req, data); err != nil {
-			return b.invalidRequest("failed to create new tdx entry: %s", err)
-		}
+	if err := b.pushTDX(ctx, req, td); err != nil {
+		return logical.ErrorResponse(err.Error()), err
 	}
 
-	{ // generate totp secret if it's empty
-		if tdx.TOTPSecret == "" {
-			totpKey, err := totp.Generate(totp.GenerateOpts{
-				AccountName: name,
-				Algorithm:   globals.TOTPAlgorithm,
-				Digits:      globals.TOTPDigits,
-				Issuer:      "vault",
-				Period:      uint(globals.TOTPPeriod / time.Second),
-				Rand:        b.Rand(),
-			})
-			if err != nil {
-				return b.loggedError("failed to generate totp secret",
-					"domain", name,
-					"error", err,
-				)
-			}
-			tdx.TOTPSecret = totpKey.Secret()
-		}
+	_data, err := b.encodeTD(ctx, td)
+	if err != nil {
+		return logical.ErrorResponse(err.Error()), err
 	}
-
-	{ // push to the storage
-		if err := b.saveTDX(ctx, req.Storage, name, tdx); err != nil {
-			return b.loggedError("failed to save tdx domain into storage",
-				"domain", name,
-				"error", err,
-			)
-		}
+	if isNew { // show totp secret only when creating
+		_data["totp_secret"] = td.TOTPSecret
 	}
-
-	{ // return result
-		data := map[string]interface{}{}
-		if err := mapstructure.Decode(tdx, &data); err != nil {
-			return b.loggedError("failed to encode the result",
-				"domain", name,
-				"error", err,
-			)
-		}
-		tdx.PopulateTokenData(data)
-		if isNew { // show totp secret only when creating
-			data["totp_secret"] = tdx.TOTPSecret
-		}
-
-		return &logical.Response{
-			Data: data,
-		}, nil
-	}
+	return &logical.Response{
+		Data: _data,
+	}, nil
 }
 
 func (b *backend) pathTDXRead(
@@ -399,45 +282,23 @@ func (b *backend) pathTDXRead(
 	req *logical.Request,
 	data *framework.FieldData,
 ) (*logical.Response, error) {
-	var (
-		name string
-		tdx  *types.TDX
-		err  error
-	)
-
-	{ // fetch from the storage
-		name = data.Get("name").(string)
-		if name == "" {
-			return b.invalidRequest("tdx domain name is required")
-		}
-
-		tdx, err = b.loadTDX(ctx, req.Storage, name)
-		if err != nil {
-			return b.loggedError("failed to load tdx domain from storage",
-				"domain", name,
-				"error", err,
-			)
-		}
-
-		if tdx == nil {
-			return nil, nil
-		}
+	name, err := b.getName(ctx, data)
+	if err != nil {
+		return logical.ErrorResponse(err.Error()), err
 	}
 
-	{ // return result
-		data := map[string]interface{}{}
-		if err := mapstructure.Decode(tdx, &data); err != nil {
-			return b.loggedError("failed to encode the result",
-				"domain", name,
-				"error", err,
-			)
-		}
-		tdx.PopulateTokenData(data)
-
-		return &logical.Response{
-			Data: data,
-		}, nil
+	td, err := b.fetchTDX(ctx, req, name)
+	if err != nil {
+		return logical.ErrorResponse(err.Error()), err
 	}
+
+	_data, err := b.encodeTD(ctx, td)
+	if err != nil {
+		return logical.ErrorResponse(err.Error()), err
+	}
+	return &logical.Response{
+		Data: _data,
+	}, nil
 }
 
 func (b *backend) pathTDXDelete(
@@ -449,13 +310,19 @@ func (b *backend) pathTDXDelete(
 
 	name := data.Get("name").(string)
 
-	l.Debug("deleting tdx domain", "name", name)
+	l.Debug("deleting domain",
+		"attestation_type", "tdx",
+		"domain", name,
+	)
 
 	if err := b.deleteTDX(ctx, req.Storage, name); err != nil {
-		return b.loggedError("failed to delete tdx domain",
+		msg := "failed to delete domain"
+		l.Error(msg,
+			"attestation_type", "tdx",
 			"domain", name,
 			"error", err,
 		)
+		return logical.ErrorResponse("%s: %s", msg, err), fmt.Errorf("%s: %w", msg, err)
 	}
 
 	return nil, nil
@@ -466,13 +333,18 @@ func (b *backend) pathTDXList(
 	req *logical.Request,
 	data *framework.FieldData,
 ) (*logical.Response, error) {
-	tdxs, err := b.listTDX(ctx, req.Storage)
+	l := b.Logger()
+
+	tds, err := b.listTDX(ctx, req.Storage)
 
 	if err != nil {
-		return b.loggedError("failed to list tdx domains",
+		msg := "failed to list domains"
+		l.Error(msg,
+			"attestation_type", "tdx",
 			"error", err,
 		)
+		return logical.ErrorResponse("%s: %s", msg, err), fmt.Errorf("%s: %w", msg, err)
 	}
 
-	return logical.ListResponse(tdxs), nil
+	return logical.ListResponse(tds), nil
 }

@@ -6,14 +6,10 @@ import (
 	"go.uber.org/zap"
 )
 
-type Logger struct {
-	log *zap.SugaredLogger
-}
+type Logger struct{}
 
 func Init(_ string, _, _ bool, _ io.Writer) *Logger {
-	return &Logger{
-		log: zap.L().Sugar(),
-	}
+	return &Logger{}
 }
 
 func Warning(args ...interface{}) {

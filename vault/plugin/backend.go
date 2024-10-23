@@ -56,12 +56,18 @@ func newBackend(cfg *app.Config) *backend {
 			pathTDXList(b),
 			pathTDXNonce(b),
 			pathTDXLogin(b),
+			pathTPM2(b),
+			pathTPM2List(b),
+			pathTPM2Nonce(b),
+			pathTPM2Login(b),
 		},
 
 		PathsSpecial: &logical.Paths{
 			Unauthenticated: []string{
 				"tdx/+/nonce",
 				"tdx/+/login",
+				"tpm2/+/nonce",
+				"tpm2/+/login",
 			},
 		},
 	}

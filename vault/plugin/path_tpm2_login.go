@@ -2,30 +2,30 @@ package plugin
 
 import (
 	"context"
-	"encoding/base64"
 
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
-const helpTDXLoginSynopsys = `
-Log in with TOTP code and TDX attestation quote.
+const helpTPM2LoginSynopsys = `
+Log in with TOTP code and TPM 2.0 attestation report.
 `
 
-const helpTDXLoginDescription = `
-This endpoint authenticates using TOTP code and TDX attestation quote.
+const helpTPM2LoginDescription = `
+This endpoint authenticates using TOTP code and TPM 2.0 attestation
+report.
 `
 
-func pathTDXLogin(b *backend) *framework.Path {
+func pathTPM2Login(b *backend) *framework.Path {
 	return &framework.Path{
-		Pattern:         "tdx/" + framework.GenericNameRegex("name") + "/login",
-		HelpSynopsis:    helpTDXLoginSynopsys,
-		HelpDescription: helpTDXLoginDescription,
+		Pattern:         "tpm2/" + framework.GenericNameRegex("name") + "/login",
+		HelpSynopsis:    helpTPM2LoginSynopsys,
+		HelpDescription: helpTPM2LoginDescription,
 
 		Fields: map[string]*framework.FieldSchema{
 			"name": {
 				Type:        framework.TypeString,
-				Description: "TDX trusted domain name",
+				Description: "TPM 2.0 trusted domain name",
 			},
 
 			"totp": {
@@ -33,24 +33,29 @@ func pathTDXLogin(b *backend) *framework.Path {
 				Description: "TOTP code",
 			},
 
-			"quote": {
+			"attestation": {
 				Type:        framework.TypeString,
-				Description: "TDX attestation quote",
+				Description: "TPM 2.0 attestation report",
+			},
+
+			"nonce": {
+				Type:        framework.TypeString,
+				Description: "Nonce used when generating TPM 2.0 attestation report",
 			},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
 			logical.UpdateOperation: &framework.PathOperation{
-				Callback: b.pathTDXLogin,
+				Callback: b.pathTPM2Login,
 			},
 			logical.AliasLookaheadOperation: &framework.PathOperation{
-				Callback: b.pathTDXAliasLookahead,
+				Callback: b.pathTPM2AliasLookahead,
 			},
 		},
 	}
 }
 
-func (b *backend) pathTDXAliasLookahead(
+func (b *backend) pathTPM2AliasLookahead(
 	ctx context.Context,
 	_ *logical.Request,
 	data *framework.FieldData,
@@ -62,12 +67,12 @@ func (b *backend) pathTDXAliasLookahead(
 
 	return &logical.Response{
 		Auth: &logical.Auth{
-			Alias: &logical.Alias{Name: "tdx/" + name},
+			Alias: &logical.Alias{Name: "tpm2/" + name},
 		},
 	}, nil
 }
 
-func (b *backend) pathTDXLogin(
+func (b *backend) pathTPM2Login(
 	ctx context.Context,
 	req *logical.Request,
 	data *framework.FieldData,
@@ -78,7 +83,7 @@ func (b *backend) pathTDXLogin(
 			return logical.ErrorResponse(err.Error()), err
 		}
 
-		td, err := b.fetchTDX(ctx, req, name)
+		td, err := b.fetchTPM2(ctx, req, name)
 		if err != nil {
 			return logical.ErrorResponse(err.Error()), err
 		}
@@ -88,21 +93,25 @@ func (b *backend) pathTDXLogin(
 			return logical.ErrorResponse(err.Error()), err
 		}
 
-		quote, err := b.parseTDXQuote(ctx, data, td)
+		attestation, err := b.parseTPM2Attestation(ctx, data, td)
 		if err != nil {
 			return logical.ErrorResponse(err.Error()), err
 		}
 
-		nonce := base64.StdEncoding.EncodeToString(quote.TdQuoteBody.ReportData)
+		nonce, err := b.getNonce(ctx, data)
+		if err != nil {
+			return logical.ErrorResponse(err.Error()), err
+		}
+
 		err = b.validateNonce(ctx, td, nonce)
 		if err != nil {
 			return logical.ErrorResponse(err.Error()), err
 		}
 
-		errs := b.validateTDXQuote(ctx, td, quote, b.multierror())
-		errs = b.verifyTDXQuote(ctx, td, quote, errs)
+		errs := b.validateTPM2Attestation(ctx, td, attestation, nonce, b.multierror())
+		errs = b.verifyTPM2Attestation(ctx, td, attestation, errs)
 
-		auth, err := b.loginTDX(ctx, td, errs)
+		auth, err := b.loginTPM2(ctx, td, errs)
 		if err != nil {
 			return logical.ErrorResponse(err.Error()), err
 		}

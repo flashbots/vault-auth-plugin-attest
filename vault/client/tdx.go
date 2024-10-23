@@ -9,7 +9,7 @@ import (
 
 	"github.com/flashbots/vault-auth-plugin-attest/config"
 	"github.com/flashbots/vault-auth-plugin-attest/globals"
-	"github.com/flashbots/vault-auth-plugin-attest/utils"
+	"github.com/flashbots/vault-auth-plugin-attest/logger"
 	"go.uber.org/zap"
 
 	tdx "github.com/google/go-tdx-guest/client"
@@ -22,10 +22,13 @@ var (
 	errTDXQuoteFailedToGenerate      = errors.New("failed to generate tdx quote")
 )
 
-func (c *Client) loginTDX(ctx context.Context, td *config.TD) (*vaultapi.Secret, error) {
+func (c *Client) loginTDX(
+	ctx context.Context,
+	td *config.TD,
+) (*vaultapi.Secret, error) {
 	var (
 		totpTS time.Time
-		nonce  [64]byte
+		nonce  [globals.TDXNonceSize]byte
 		quote  []byte
 		err    error
 	)
@@ -37,14 +40,20 @@ func (c *Client) loginTDX(ctx context.Context, td *config.TD) (*vaultapi.Secret,
 		}
 		totpTS = time.Now()
 
-		nonce, err = c.fetchTDXNonce(ctx, td, totpCode)
+		_nonce, err := c.fetchNonce(ctx, td, totpCode)
 		if err != nil {
 			return nil, err
 		}
+		if len(_nonce) != globals.TDXNonceSize {
+			return nil, fmt.Errorf("wrong size of tdx attestation nonce: expected %d; got %d",
+				globals.TDXNonceSize, len(nonce),
+			)
+		}
+		copy(nonce[:], _nonce)
 	}
 
 	{ // generate tdx quote
-		quote, err = c.generateTDXQuote(nonce)
+		quote, err = c.generateTDXQuote(ctx, nonce)
 		if err != nil {
 			return nil, err
 		}
@@ -61,63 +70,19 @@ func (c *Client) loginTDX(ctx context.Context, td *config.TD) (*vaultapi.Secret,
 	}
 }
 
-func (c *Client) fetchTDXNonce(
+func (c *Client) generateTDXQuote(
 	ctx context.Context,
-	td *config.TD,
-	totpCode string,
-) ([64]byte, error) {
-	return utils.WrapError(fmt.Errorf("%w: %s", errTDXNonceFailedToFetch, td.Name), func() ([64]byte, error) {
-		l := zap.L()
+	nonce [globals.TDXNonceSize]byte,
+) ([]byte, error) {
+	l := logger.FromContext(ctx)
 
-		path := "auth/" + td.VaultPath + "/tdx/" + td.Name + "/nonce"
+	provider, err := tdx.GetQuoteProvider()
+	if err != nil {
+		return nil, err
+	}
 
-		l.Debug("Requesting tdx attestation nonce from vault",
-			zap.String("vault_addr", c.vault.Address()),
-			zap.String("vault_path", path),
-		)
-
-		res, err := c.vault.Logical().WriteWithContext(ctx, path, map[string]interface{}{
-			"totp": totpCode,
-		})
-		if err != nil {
-			return [64]byte{}, err
-		}
-
-		_nonceBase64, exists := res.Data["nonce"]
-		if !exists {
-			return [64]byte{}, errors.New("no tdx attestation nonce was returned")
-		}
-		nonceBase64, ok := _nonceBase64.(string)
-		if !ok {
-			return [64]byte{}, errors.New("tdx attestation nonce must be a base64 sting")
-		}
-
-		nonce, err := base64.StdEncoding.DecodeString(nonceBase64)
-		if err != nil {
-			return [64]byte{}, fmt.Errorf("failed to base64-decode tdx attestation nonce: %w", err)
-		}
-
-		if len(nonce) != 64 {
-			return [64]byte{}, fmt.Errorf("tdx attestation nonce is not 64 bytes long: actual length is %d bytes", len(nonce))
-		}
-
-		return [64]byte(nonce), nil
-	})
-}
-
-func (c *Client) generateTDXQuote(nonce [64]byte) ([]byte, error) {
-	return utils.WrapError(errTDXQuoteFailedToGenerate, func() ([]byte, error) {
-		l := zap.L()
-
-		l.Debug("Generating TDX quote")
-
-		provider, err := tdx.GetQuoteProvider()
-		if err != nil {
-			return nil, err
-		}
-
-		return tdx.GetRawQuote(provider, nonce)
-	})
+	l.Debug("Generating TDX quote")
+	return tdx.GetRawQuote(provider, nonce)
 }
 
 func (c *Client) fetchTDXToken(
@@ -126,19 +91,17 @@ func (c *Client) fetchTDXToken(
 	totpCode string,
 	quote []byte,
 ) (*vaultapi.Secret, error) {
-	return utils.WrapError(errTDXAttestedTokenFailedToFetch, func() (*vaultapi.Secret, error) {
-		l := zap.L()
+	l := logger.FromContext(ctx)
 
-		path := "auth/" + td.VaultPath + "/tdx/" + td.Name + "/login"
+	path := "auth/" + td.VaultPath + "/tdx/" + td.Name + "/login"
 
-		l.Debug("Requesting tdx attested token from vault",
-			zap.String("vault_addr", c.vault.Address()),
-			zap.String("vault_path", path),
-		)
+	l.Debug("Requesting tdx attested token from vault",
+		zap.String("vault_addr", c.vault.Address()),
+		zap.String("vault_path", path),
+	)
 
-		return c.vault.Logical().WriteWithContext(ctx, path, map[string]interface{}{
-			"totp":  totpCode,
-			"quote": base64.StdEncoding.EncodeToString(quote),
-		})
+	return c.vault.Logical().WriteWithContext(ctx, path, map[string]interface{}{
+		"totp":  totpCode,
+		"quote": base64.StdEncoding.EncodeToString(quote),
 	})
 }
